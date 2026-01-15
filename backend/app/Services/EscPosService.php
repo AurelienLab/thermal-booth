@@ -37,6 +37,7 @@ class EscPosService
 
     private function floydSteinbergDither($image, int $width, int $height): array
     {
+        $threshold = 128;
         // Extract grayscale values
         $gray = [];
         for ($y = 0; $y < $height; $y++) {
@@ -51,7 +52,7 @@ class EscPosService
         for ($y = 0; $y < $height; $y++) {
             for ($x = 0; $x < $width; $x++) {
                 $oldPixel = $gray[$y][$x];
-                $newPixel = $oldPixel < 128 ? 0 : 255;
+                $newPixel = $oldPixel < $threshold ? 0 : 255;
                 $output[$y][$x] = $newPixel === 0 ? 1 : 0; // 1 = black, 0 = white
                 $error = $oldPixel - $newPixel;
 

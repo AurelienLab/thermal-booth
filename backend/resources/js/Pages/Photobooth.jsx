@@ -1,16 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { processImage } from '../utils/imageProcessor';
 
 const DEVICE_ID = 1;
 
 export default function Photobooth() {
-    const [screen, setScreen] = useState('camera'); // camera, preview, printing, done
+    const [screen, setScreen] = useState('camera'); // camera, preview, adjust, printing, done
     const [photoBlob, setPhotoBlob] = useState(null);
     const [photoUrl, setPhotoUrl] = useState(null);
     const [error, setError] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [cameraReady, setCameraReady] = useState(false);
     const [facingMode, setFacingMode] = useState('user'); // 'user' = front, 'environment' = back
+
+    // Adjustment parameters
+    const [contrast, setContrast] = useState(30);
+    const [processedImageUrl, setProcessedImageUrl] = useState(null);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const videoRef = useRef(null);
     const streamRef = useRef(null);
@@ -92,11 +98,49 @@ export default function Photobooth() {
     // Retake photo
     const retake = useCallback(() => {
         if (photoUrl) URL.revokeObjectURL(photoUrl);
+        if (processedImageUrl) URL.revokeObjectURL(processedImageUrl);
         setPhotoBlob(null);
         setPhotoUrl(null);
+        setProcessedImageUrl(null);
+        setContrast(30);
         setError(null);
         setScreen('camera');
-    }, [photoUrl]);
+    }, [photoUrl, processedImageUrl]);
+
+    // Go to adjust screen
+    const goToAdjust = useCallback(async () => {
+        setScreen('adjust');
+        setIsProcessing(true);
+        try {
+            const processed = await processImage(photoUrl, { contrast });
+            setProcessedImageUrl(processed);
+        } catch (err) {
+            console.error('Processing error:', err);
+        } finally {
+            setIsProcessing(false);
+        }
+    }, [photoUrl, contrast]);
+
+    // Update preview when parameters change
+    const updatePreview = useCallback(async () => {
+        if (!photoUrl || screen !== 'adjust') return;
+        setIsProcessing(true);
+        try {
+            const processed = await processImage(photoUrl, { contrast });
+            setProcessedImageUrl(processed);
+        } catch (err) {
+            console.error('Processing error:', err);
+        } finally {
+            setIsProcessing(false);
+        }
+    }, [photoUrl, contrast, screen]);
+
+    // Debounce preview updates
+    useEffect(() => {
+        if (screen !== 'adjust') return;
+        const timer = setTimeout(updatePreview, 150);
+        return () => clearTimeout(timer);
+    }, [contrast, screen, updatePreview]);
 
     // Print photo
     const printPhoto = useCallback(async () => {
@@ -112,10 +156,13 @@ export default function Photobooth() {
             formData.append('photo', photoBlob, 'capture.jpg');
             const uploadRes = await axios.post('/api/photos', formData);
 
-            // Create print job
+            // Create print job with options
             await axios.post(`/api/devices/${DEVICE_ID}/print-jobs`, {
                 type: 'photo',
-                photo_id: uploadRes.data.id
+                photo_id: uploadRes.data.id,
+                options: {
+                    contrast
+                }
             });
 
             setScreen('done');
@@ -124,17 +171,20 @@ export default function Photobooth() {
         } finally {
             setIsLoading(false);
         }
-    }, [photoBlob]);
+    }, [photoBlob, contrast]);
 
     // Restart
     const restart = useCallback(() => {
         if (photoUrl) URL.revokeObjectURL(photoUrl);
+        if (processedImageUrl) URL.revokeObjectURL(processedImageUrl);
         setPhotoBlob(null);
         setPhotoUrl(null);
+        setProcessedImageUrl(null);
+        setContrast(30);
         setError(null);
         setIsLoading(false);
         setScreen('camera');
-    }, [photoUrl]);
+    }, [photoUrl, processedImageUrl]);
 
     // Auto-start camera when on camera screen
     useEffect(() => {
@@ -216,11 +266,76 @@ export default function Photobooth() {
                             Reprendre
                         </button>
                         <button
-                            onClick={printPhoto}
+                            onClick={goToAdjust}
                             className="px-8 py-4 rounded-full bg-white text-black font-medium active:scale-95 transition-transform"
                         >
-                            Imprimer
+                            Suivant
                         </button>
+                    </div>
+                </>
+            )}
+
+            {/* Adjust Screen */}
+            {screen === 'adjust' && (
+                <>
+                    <div className="flex-1 relative overflow-hidden bg-gray-900">
+                        {/* Processed preview */}
+                        <div className="absolute inset-0 flex items-center justify-center p-4">
+                            {processedImageUrl ? (
+                                <img
+                                    src={processedImageUrl}
+                                    alt="Preview traite"
+                                    className="max-w-full max-h-full object-contain border border-gray-700"
+                                    style={{ imageRendering: 'pixelated' }}
+                                />
+                            ) : (
+                                <div className="text-white">Traitement...</div>
+                            )}
+                        </div>
+                        {isProcessing && (
+                            <div className="absolute top-4 right-4 w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                        )}
+                    </div>
+
+                    {/* Controls */}
+                    <div className="p-4 bg-black/90 space-y-4">
+                        {/* Contrast slider */}
+                        <div>
+                            <div className="flex justify-between text-sm text-gray-400 mb-1">
+                                <span>Contraste</span>
+                                <span>{contrast}</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="-100"
+                                max="100"
+                                value={contrast}
+                                onChange={(e) => setContrast(Number(e.target.value))}
+                                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-white"
+                            />
+                        </div>
+
+                        {/* Buttons */}
+                        <div className="flex justify-center gap-4 pt-2">
+                            <button
+                                onClick={() => setScreen('preview')}
+                                className="px-6 py-3 rounded-full bg-gray-700 text-white font-medium active:scale-95 transition-transform"
+                            >
+                                Retour
+                            </button>
+                            <button
+                                onClick={() => setContrast(30)}
+                                className="px-6 py-3 rounded-full bg-gray-700 text-white font-medium active:scale-95 transition-transform"
+                            >
+                                Reset
+                            </button>
+                            <button
+                                onClick={printPhoto}
+                                className="px-6 py-3 rounded-full bg-white text-black font-medium active:scale-95 transition-transform"
+                            >
+                                Imprimer
+                            </button>
+                        </div>
                     </div>
                 </>
             )}
