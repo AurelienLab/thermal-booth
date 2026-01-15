@@ -123,4 +123,16 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Admin Password
+    |--------------------------------------------------------------------------
+    |
+    | This is the hashed password for accessing the admin interface.
+    | Generate with: php artisan tinker -> Hash::make('your-password')
+    |
+    */
+
+    'admin_password_hash' => env('ADMIN_PASSWORD_HASH'),
+
 ];

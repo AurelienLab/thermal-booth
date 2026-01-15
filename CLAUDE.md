@@ -14,9 +14,22 @@ Key constraint: No direct browser-to-ESP32 communication. Everything routes thro
 
 ```
 thermalBooth/
-├── backend/          # Laravel API
+├── backend/                          # Laravel API + Frontend
+│   ├── app/
+│   │   ├── Http/Controllers/Admin/   # Admin controllers
+│   │   ├── Http/Middleware/AdminAuthenticate.php
+│   │   └── Services/EscPosService.php
+│   ├── resources/js/
+│   │   ├── Pages/
+│   │   │   ├── Photobooth.jsx        # Main PWA component
+│   │   │   └── Admin/                # Admin pages (Dashboard, Photos, PrintJobs, Devices)
+│   │   ├── layouts/AdminLayout.jsx   # Admin sidebar layout
+│   │   ├── components/ui/            # shadcn/ui components
+│   │   ├── components/admin/         # Admin-specific components
+│   │   └── utils/imageProcessor.js   # Client-side image processing
+│   └── ...
 ├── esp32/
-│   └── thermalBooth/ # Arduino sketch
+│   └── thermalBooth/                 # Arduino sketch
 ├── CLAUDE.md
 └── photobooth-plan.md
 ```
@@ -41,8 +54,8 @@ Backend URL: http://backend.test (via Herd)
 
 ## Technology Stack
 
-- **Backend:** Laravel 12 (PHP) with Intervention Image
-- **Frontend:** PWA (to be built)
+- **Backend:** Laravel 12 (PHP) with Intervention Image, Inertia.js
+- **Frontend:** React 19 PWA with Tailwind CSS v4, shadcn/ui
 - **Firmware:** ESP32 (Arduino IDE)
 - **Communication:** HTTP Polling (WebSocket planned for V2)
 - **Printer:** EM5820 thermal printer (ESC/POS, 384 dots/line, 9600 baud)
@@ -72,17 +85,28 @@ Backend URL: http://backend.test (via Herd)
 - Flow Control: NONE
 - Instruction Set: ESC/POS
 
-## Image Processing Pipeline (Laravel)
+## Image Processing Pipeline
+
+### Backend (Laravel)
 
 Service: `app/Services/EscPosService.php`
 
 1. Load image with Intervention Image
 2. Resize to 384px width
 3. Convert to grayscale
-4. Increase contrast (+30)
-5. Floyd-Steinberg dithering (1-bit)
+4. Adjust contrast (configurable, default +30)
+5. Floyd-Steinberg dithering (1-bit, threshold 128)
 6. Generate ESC/POS binary with GS v 0 command
 7. Save to `storage/app/public/escpos/{job_id}.bin`
+
+### Frontend (JavaScript)
+
+Utility: `resources/js/utils/imageProcessor.js`
+
+Replicates the backend algorithm for real-time preview:
+- Same pipeline: resize → grayscale → contrast → Floyd-Steinberg dithering
+- User can adjust contrast (-100 to +100) before printing
+- Preview updates in real-time with debouncing
 
 ## API Endpoints
 
@@ -101,10 +125,48 @@ Service: `app/Services/EscPosService.php`
 - `POST /api/device/jobs/{id}/ack` - Acknowledge completion
 - `POST /api/device/heartbeat` - Device status update
 
+## PWA User Flow
+
+Component: `resources/js/Pages/Photobooth.jsx`
+
+1. **Camera** - Live viewfinder with capture button, front/back camera switch
+2. **Preview** - Review captured photo, option to retake or continue
+3. **Adjust** - Real-time dithered preview, contrast slider (-100 to +100)
+4. **Printing** - Loading state while uploading and creating print job
+5. **Done** - Success confirmation, auto-restart after 5 seconds
+
 ## Current Device Token
 
 Device ID: 1 (ESP32-Booth)
 Token: `d84d42e1b53138d2f57a391372488dfafabebf3a986d158ced8df55ea03d1d8f`
+
+## Admin Interface
+
+**URL:** http://backend.test/admin
+**Password:** admin (configurable via `ADMIN_PASSWORD_HASH` in .env)
+
+### Features
+- **Dashboard** - Stats overview, recent photos, active devices
+- **Photos** - Gallery with dithered preview, contrast adjustment, print to device
+- **Print Jobs** - History with filters (status, device, date), reprint/cancel actions
+- **Devices** - Manage ESP32 devices, online status, create new (shows token once)
+
+### Admin Routes
+```
+/admin/login     - Password login
+/admin           - Dashboard
+/admin/photos    - Photo gallery
+/admin/photos/{id} - Photo detail + print
+/admin/print-jobs - Print jobs history
+/admin/devices   - Devices management
+```
+
+### Change Admin Password
+```bash
+php artisan tinker
+> Hash::make('your-new-password')
+# Copy the output to .env ADMIN_PASSWORD_HASH
+```
 
 ## MVP Progress
 
@@ -115,12 +177,15 @@ Token: `d84d42e1b53138d2f57a391372488dfafabebf3a986d158ced8df55ea03d1d8f`
 - [x] Laravel: image → ESC/POS conversion
 - [x] Laravel: print job API
 - [x] ESP32: WiFi + API polling + print + ACK
-- [ ] PWA: capture photo + send
-- [ ] Admin UI: jobs list, retry, gallery
+- [x] PWA: camera capture (front/back switch)
+- [x] PWA: photo preview before print
+- [x] PWA: real-time dithering preview with contrast adjustment
+- [x] PWA: send to print queue
+- [x] Admin UI: dashboard, gallery, jobs list, retry, devices
 - [ ] WebSocket: replace polling with push
 
 ## Notes
 
 - ESP32 polls API every 5 seconds
 - For external access, use Expose or similar tunnel (backend.test won't resolve on ESP32)
-- Increase print contrast by pre-processing images or adjusting delay in ESP32 streaming
+- Contrast is adjustable in PWA before printing (default +30)
