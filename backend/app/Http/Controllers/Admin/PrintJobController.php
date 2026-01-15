@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Events\PrintJobCreated;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\PrintJob;
@@ -48,13 +49,13 @@ class PrintJobController extends Controller
             ]),
             'filters' => $request->only(['status', 'device_id', 'date_from', 'date_to']),
             'devices' => Device::all(['id', 'name']),
-            'statuses' => ['pending', 'processing', 'printed', 'failed', 'canceled'],
+            'statuses' => ['pending', 'processing', 'printed', 'failed', 'canceled', 'expired'],
         ]);
     }
 
     public function reprint(PrintJob $printJob)
     {
-        PrintJob::create([
+        $newJob = PrintJob::create([
             'device_id' => $printJob->device_id,
             'photo_id' => $printJob->photo_id,
             'type' => $printJob->type,
@@ -62,6 +63,9 @@ class PrintJobController extends Controller
             'escpos_path' => $printJob->escpos_path,
             'status' => 'pending',
         ]);
+
+        // Broadcast to device via WebSocket
+        broadcast(new PrintJobCreated($newJob));
 
         return back()->with('success', 'Reprint job created');
     }

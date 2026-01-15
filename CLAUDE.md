@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Mini photobooth system that captures photos via a mobile PWA, processes them through a Laravel backend, and prints on a 58mm thermal printer (EM5820) connected to an ESP32.
 
-**Architecture:** PWA -> Laravel API -> (Polling for now) -> ESP32 -> UART TTL -> Thermal Printer
+**Architecture:** PWA -> Laravel API -> WebSocket (Reverb) -> ESP32 -> UART TTL -> Thermal Printer
 
 Key constraint: No direct browser-to-ESP32 communication. Everything routes through Laravel.
 
@@ -57,14 +57,14 @@ Backend URL: http://backend.test (via Herd)
 - **Backend:** Laravel 12 (PHP) with Intervention Image, Inertia.js
 - **Frontend:** React 19 PWA with Tailwind CSS v4, shadcn/ui
 - **Firmware:** ESP32 (Arduino IDE)
-- **Communication:** HTTP Polling (WebSocket planned for V2)
+- **Communication:** WebSocket (Laravel Reverb) with HTTP polling fallback
 - **Printer:** EM5820 thermal printer (ESC/POS, 384 dots/line, 9600 baud)
 
 ## Data Models
 
 - `devices` - ESP32 devices with hashed auth tokens
 - `photos` - Uploaded images with original/preview paths
-- `print_jobs` - Queue with status (pending/processing/printed/failed/canceled), stores escpos_path
+- `print_jobs` - Queue with status (pending/processing/printed/failed/canceled/expired), stores escpos_path. Jobs pending > 1 minute auto-expire.
 
 ## ESP32 Hardware Setup
 
@@ -168,6 +168,39 @@ php artisan tinker
 # Copy the output to .env ADMIN_PASSWORD_HASH
 ```
 
+## WebSocket (Reverb)
+
+Laravel Reverb handles real-time communication with ESP32 devices using the Pusher protocol.
+
+### Start Reverb locally
+```bash
+herd php artisan reverb:start
+```
+
+### Start Reverb with Expose (for ESP32 access)
+```bash
+./start-reverb-expose.sh
+```
+This creates a tunnel at `thermalbooth-ws.sharedwithexpose.com`
+
+### ESP32 WebSocket Config
+In `esp32/thermalBooth/thermalBooth.ino`:
+- `WS_HOST` - Expose URL for WebSocket (e.g., `thermalbooth-ws.sharedwithexpose.com`)
+- `WS_PORT` - 443 for SSL (Expose), 8080 for local
+- `WS_USE_SSL` - true for Expose, false for local
+- `REVERB_APP_KEY` - from `.env` REVERB_APP_KEY
+
+### How it works
+1. ESP32 connects to Reverb via WebSocket (Pusher protocol)
+2. Subscribes to channel `device.{DEVICE_ID}`
+3. Receives `job.created` events instantly when a print job is created
+4. Falls back to HTTP polling every 5s if WebSocket disconnects
+
+### Event: PrintJobCreated
+- Channel: `device.{device_id}`
+- Event name: `job.created`
+- Payload: `{ job_id, type, escpos_url }`
+
 ## MVP Progress
 
 - [x] ESP32 prints text
@@ -182,10 +215,11 @@ php artisan tinker
 - [x] PWA: real-time dithering preview with contrast adjustment
 - [x] PWA: send to print queue
 - [x] Admin UI: dashboard, gallery, jobs list, retry, devices
-- [ ] WebSocket: replace polling with push
+- [x] WebSocket: Reverb + ESP32 client with polling fallback
 
 ## Notes
 
-- ESP32 polls API every 5 seconds
-- For external access, use Expose or similar tunnel (backend.test won't resolve on ESP32)
+- ESP32 uses WebSocket for instant job notifications, falls back to polling every 5s if disconnected
+- For external access, use Expose tunnels for both API and WebSocket (backend.test won't resolve on ESP32)
 - Contrast is adjustable in PWA before printing (default +30)
+- Print jobs pending > 1 minute are automatically expired to prevent stale prints

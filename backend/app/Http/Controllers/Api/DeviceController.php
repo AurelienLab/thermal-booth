@@ -14,6 +14,12 @@ class DeviceController extends Controller
     {
         $device = $request->attributes->get('device');
 
+        // Expire pending jobs older than 1 minute
+        PrintJob::where('device_id', $device->id)
+            ->where('status', 'pending')
+            ->where('created_at', '<', now()->subMinute())
+            ->update(['status' => 'expired']);
+
         $job = PrintJob::where('device_id', $device->id)
             ->where('status', 'pending')
             ->orderBy('created_at', 'asc')

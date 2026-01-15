@@ -6,6 +6,7 @@ const statusConfig = {
     printed: { variant: 'outline', className: 'bg-green-50 text-green-700 border-green-200' },
     failed: { variant: 'destructive', className: '' },
     canceled: { variant: 'secondary', className: '' },
+    expired: { variant: 'outline', className: 'bg-orange-50 text-orange-700 border-orange-200' },
 };
 
 export default function StatusBadge({ status }) {

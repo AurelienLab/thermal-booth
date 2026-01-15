@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\PrintJobCreated;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\Photo;
@@ -33,6 +34,9 @@ class PrintJobController extends Controller
             $this->generateEscPosFile($printJob);
         }
 
+        // Broadcast to device via WebSocket
+        broadcast(new PrintJobCreated($printJob))->toOthers();
+
         return response()->json([
             'id' => $printJob->id,
             'status' => $printJob->status,
@@ -56,6 +60,9 @@ class PrintJobController extends Controller
             'escpos_path' => $printJob->escpos_path,
             'status' => 'pending',
         ]);
+
+        // Broadcast to device via WebSocket
+        broadcast(new PrintJobCreated($newJob))->toOthers();
 
         return response()->json([
             'id' => $newJob->id,

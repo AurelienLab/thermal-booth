@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Events\PrintJobCreated;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\Photo;
@@ -95,6 +96,9 @@ class PhotoController extends Controller
 
         // Generate ESC/POS file
         $this->generateEscPosFile($printJob);
+
+        // Broadcast to device via WebSocket
+        broadcast(new PrintJobCreated($printJob));
 
         return back()->with('success', 'Print job created');
     }
