@@ -85,6 +85,42 @@ Backend URL: http://backend.test (via Herd)
 - Flow Control: NONE
 - Instruction Set: ESC/POS
 
+## ESP32 WiFi Provisioning (BLE)
+
+The ESP32 supports WiFi configuration via Bluetooth Low Energy (BLE), with multi-network support (up to 5 networks).
+
+### First Setup / No Saved Networks
+1. ESP32 starts in provisioning mode (LED blinks slowly)
+2. Thermal printer prints setup instructions
+3. Download **ESP BLE Provisioning** app:
+   - [Android](https://play.google.com/store/apps/details?id=com.espressif.provble)
+   - [iOS](https://apps.apple.com/app/esp-ble-provisioning/id1473590141)
+4. Connect to device: `ThermalBooth`
+5. Enter password: `thermalbooth`
+6. Select WiFi network and enter password
+7. ESP32 saves the network and connects
+
+### Multi-Network Support
+- Up to 5 WiFi networks can be saved
+- ESP32 automatically connects to the best available network
+- New networks replace the oldest when at capacity
+- Same SSID = credentials updated (no duplicate)
+
+### Reset WiFi (BOOT Button)
+- Hold the **BOOT button** (GPIO 0) for **3 seconds**
+- LED blinks faster as reset approaches
+- All saved networks are cleared
+- ESP32 restarts in provisioning mode
+
+### Configuration Constants
+In `esp32/thermalBooth/thermalBooth.ino`:
+```cpp
+#define PROV_DEVICE_NAME    "ThermalBooth"   // BLE device name
+#define PROV_POP            "thermalbooth"   // BLE password
+#define MAX_WIFI_NETWORKS   5                // Max saved networks
+#define RESET_HOLD_TIME     3000             // Reset button hold time (ms)
+```
+
 ## Image Processing Pipeline
 
 ### Backend (Laravel)
@@ -210,6 +246,7 @@ In `esp32/thermalBooth/thermalBooth.ino`:
 - [x] Laravel: image → ESC/POS conversion
 - [x] Laravel: print job API
 - [x] ESP32: WiFi + API polling + print + ACK
+- [x] ESP32: BLE WiFi provisioning with multi-network support
 - [x] PWA: camera capture (front/back switch)
 - [x] PWA: photo preview before print
 - [x] PWA: real-time dithering preview with contrast adjustment
