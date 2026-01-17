@@ -36,12 +36,12 @@ volatile bool eventProvCredSuccess = false;
 volatile uint8_t lastDisconnectReason = 0;
 
 // App URL (without trailing slash)
-const char* APP_URL = "https://rhtpavchez.sharedwithexpose.com";
-const char* DEVICE_TOKEN = "d84d42e1b53138d2f57a391372488dfafabebf3a986d158ced8df55ea03d1d8f";
+const char* APP_URL = "https://thermal-booth.aurelienlab.dev";
+const char* DEVICE_TOKEN = "eb5c8829c2be10d1e2f310d43574b89b489d61d4d630adf097dbec326ad6d642";
 
 // WebSocket (Reverb) config
 // Use the Expose URL from: ./start-reverb-expose.sh
-const char* WS_HOST = "nt8kjkwyat.sharedwithexpose.com";
+const char* WS_HOST = "thermal-booth-ws.aurelienlab.dev";
 const int WS_PORT = 443;  // Expose uses HTTPS/WSS
 const bool WS_USE_SSL = true;
 const char* REVERB_APP_KEY = "u3t0oluwneliboxhbq4m";

@@ -40,6 +40,7 @@ class HandleInertiaRequests extends Middleware
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
+                'newDevice' => fn () => $request->session()->get('newDevice'),
             ],
             'auth' => [
                 'isAdmin' => fn () => $request->session()->get('admin_authenticated', false),
