@@ -11,7 +11,7 @@ class EscPosService
 
     // Gamma correction to compensate for thermal printer behavior
     // Values > 1 lighten midtones, < 1 darken them
-    const PRINTER_GAMMA = 1.8;
+    const PRINTER_GAMMA = 2.3;
 
     public function convertImageToEscPos(string $imagePath, array $options = []): string
     {
