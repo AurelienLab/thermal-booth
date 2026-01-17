@@ -5,6 +5,10 @@
 
 const PRINTER_WIDTH = 384;
 
+// Gamma correction to compensate for thermal printer behavior
+// Values > 1 lighten midtones (thermal printers darken midtones)
+const PRINTER_GAMMA = 1.4;
+
 /**
  * Load an image from URL into a canvas
  * @param {string} imageUrl - URL or blob URL of the image
@@ -75,7 +79,7 @@ export function grayscale(imageData) {
 export function adjustContrast(imageData, contrast) {
     const data = imageData.data;
 
-    // Convert contrast to factor (similar to Intervention Image)
+    // Convert contrast to factor (same formula as backend)
     // contrast of 0 = no change, positive = more contrast, negative = less
     const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
 
@@ -83,6 +87,26 @@ export function adjustContrast(imageData, contrast) {
         data[i] = clamp(factor * (data[i] - 128) + 128);
         data[i + 1] = clamp(factor * (data[i + 1] - 128) + 128);
         data[i + 2] = clamp(factor * (data[i + 2] - 128) + 128);
+    }
+
+    return imageData;
+}
+
+/**
+ * Apply gamma correction to compensate for thermal printer behavior
+ * Thermal printers tend to darken midtones, so we lighten them in preview
+ * @param {ImageData} imageData
+ * @param {number} gamma - Gamma value (>1 lightens midtones, <1 darkens)
+ * @returns {ImageData}
+ */
+export function applyGamma(imageData, gamma = PRINTER_GAMMA) {
+    const data = imageData.data;
+    const invGamma = 1 / gamma;
+
+    for (let i = 0; i < data.length; i += 4) {
+        data[i] = clamp(255 * Math.pow(data[i] / 255, invGamma));
+        data[i + 1] = clamp(255 * Math.pow(data[i + 1] / 255, invGamma));
+        data[i + 2] = clamp(255 * Math.pow(data[i + 2] / 255, invGamma));
     }
 
     return imageData;
@@ -175,9 +199,10 @@ export async function processImage(imageUrl, options = {}) {
     // Get image data
     let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-    // Apply transformations
+    // Apply transformations (same pipeline as backend)
     imageData = grayscale(imageData);
     imageData = adjustContrast(imageData, contrast);
+    imageData = applyGamma(imageData); // Compensate for thermal printer behavior
     imageData = floydSteinbergDither(imageData);
 
     // Put processed data back

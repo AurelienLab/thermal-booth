@@ -4,6 +4,7 @@
 
 #include <WiFi.h>
 #include <WiFiMulti.h>
+#include <WiFiClientSecure.h>
 #include <WiFiProv.h>
 #include <Preferences.h>
 #include <esp_wifi.h>
@@ -24,6 +25,7 @@
 // WIFI MULTI
 // ============================================
 WiFiMulti wifiMulti;
+WiFiClientSecure secureClient;
 Preferences preferences;
 bool provisioningActive = false;
 bool wifiConnected = false;
@@ -37,7 +39,7 @@ volatile uint8_t lastDisconnectReason = 0;
 
 // App URL (without trailing slash)
 const char* APP_URL = "https://thermal-booth.aurelienlab.dev";
-const char* DEVICE_TOKEN = "eb5c8829c2be10d1e2f310d43574b89b489d61d4d630adf097dbec326ad6d642";
+const char* DEVICE_TOKEN = "bb3da05ed2d7bd788dbd03dd03c8a1689ae9096a5c0080bbb618e648720b69ee";
 
 // WebSocket (Reverb) config
 // Use the Expose URL from: ./start-reverb-expose.sh
@@ -86,6 +88,9 @@ void setup() {
 
     Serial.println("\n=== ThermalBooth ESP32 ===");
     Serial.println("Hold BOOT button for 3s to reset WiFi");
+
+    // Init HTTPS client (skip certificate verification)
+    secureClient.setInsecure();
 
     // Init printer
     initPrinter();
@@ -619,7 +624,7 @@ void checkForJobs() {
     HTTPClient http;
     String url = String(APP_URL) + "/api/device/jobs/next";
 
-    http.begin(url);
+    http.begin(secureClient, url);
     http.addHeader("Authorization", String("Bearer ") + DEVICE_TOKEN);
     http.addHeader("Accept", "application/json");
 
@@ -659,7 +664,7 @@ bool downloadAndPrint(const char* url) {
     Serial.println(url);
 
     HTTPClient http;
-    http.begin(url);
+    http.begin(secureClient, url);
 
     int httpCode = http.GET();
 
@@ -716,7 +721,6 @@ bool downloadAndPrint(const char* url) {
     // Feed paper
     Serial2.println();
     Serial2.println();
-    Serial2.println();
 
     digitalWrite(LED_BUILTIN, HIGH);
     http.end();
@@ -733,7 +737,7 @@ void sendAck(int jobId, bool success) {
     HTTPClient http;
     String url = String(APP_URL) + "/api/device/jobs/" + String(jobId) + "/ack";
 
-    http.begin(url);
+    http.begin(secureClient, url);
     http.addHeader("Authorization", String("Bearer ") + DEVICE_TOKEN);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Accept", "application/json");
@@ -758,7 +762,7 @@ void sendHeartbeat() {
     HTTPClient http;
     String url = String(APP_URL) + "/api/device/heartbeat";
 
-    http.begin(url);
+    http.begin(secureClient, url);
     http.addHeader("Authorization", String("Bearer ") + DEVICE_TOKEN);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Accept", "application/json");

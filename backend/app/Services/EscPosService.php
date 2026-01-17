@@ -9,6 +9,10 @@ class EscPosService
 {
     const PRINTER_WIDTH = 384;
 
+    // Gamma correction to compensate for thermal printer behavior
+    // Values > 1 lighten midtones, < 1 darken them
+    const PRINTER_GAMMA = 1.4;
+
     public function convertImageToEscPos(string $imagePath, array $options = []): string
     {
         $manager = new ImageManager(new Driver());
@@ -20,32 +24,50 @@ class EscPosService
         // Convert to grayscale
         $image->greyscale();
 
-        // Increase contrast
-        $contrast = $options['contrast'] ?? 30;
-        $image->contrast($contrast);
-
         $width = $image->width();
         $height = $image->height();
         $widthBytes = (int) ceil($width / 8);
 
+        // Extract pixels and apply contrast + gamma manually for consistency with frontend
+        $contrast = $options['contrast'] ?? 30;
+        $gray = $this->extractAndProcessPixels($image, $width, $height, $contrast);
+
         // Apply Floyd-Steinberg dithering and convert to 1-bit
-        $pixels = $this->floydSteinbergDither($image, $width, $height);
+        $pixels = $this->floydSteinbergDither($gray, $width, $height);
 
         // Generate ESC/POS binary
         return $this->generateEscPosBinary($pixels, $widthBytes, $height);
     }
 
-    private function floydSteinbergDither($image, int $width, int $height): array
+    private function extractAndProcessPixels($image, int $width, int $height, int $contrast): array
     {
-        $threshold = 128;
-        // Extract grayscale values
+        // Contrast factor (same formula as frontend)
+        $factor = (259 * ($contrast + 255)) / (255 * (259 - $contrast));
+
         $gray = [];
         for ($y = 0; $y < $height; $y++) {
             for ($x = 0; $x < $width; $x++) {
                 $color = $image->pickColor($x, $y);
-                $gray[$y][$x] = (float) $color->red()->value();
+                $value = (float) $color->red()->value();
+
+                // Apply contrast (same as frontend)
+                $value = $factor * ($value - 128) + 128;
+                $value = max(0, min(255, $value));
+
+                // Apply gamma correction to compensate for thermal printer
+                // This lightens midtones which thermal printers tend to darken
+                $value = 255 * pow($value / 255, 1 / self::PRINTER_GAMMA);
+
+                $gray[$y][$x] = $value;
             }
         }
+
+        return $gray;
+    }
+
+    private function floydSteinbergDither(array $gray, int $width, int $height): array
+    {
+        $threshold = 128;
 
         // Floyd-Steinberg dithering
         $output = [];
