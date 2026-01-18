@@ -233,7 +233,7 @@ export default function Photobooth() {
 
             // If session expired, refresh status and show message
             if (err.response?.status === 403) {
-                fetchDeviceStatus();
+                validateSession();
                 setError('Session expirée. L\'imprimante a été redémarrée. Veuillez réessayer.');
             } else if (err.response?.status === 503) {
                 setError('L\'imprimante est hors ligne.');
@@ -243,7 +243,7 @@ export default function Photobooth() {
         } finally {
             setIsLoading(false);
         }
-    }, [photoBlob, contrast, sessionToken, deviceOnline, fetchDeviceStatus]);
+    }, [photoBlob, contrast, sessionToken, deviceOnline, validateSession]);
 
     // Restart
     const restart = useCallback(() => {
