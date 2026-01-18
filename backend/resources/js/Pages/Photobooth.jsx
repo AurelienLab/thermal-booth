@@ -6,7 +6,7 @@ const DEVICE_ID = 1;
 const STATUS_POLL_INTERVAL = 10000; // Check device status every 10s
 
 export default function Photobooth() {
-    const [screen, setScreen] = useState('camera'); // camera, preview, adjust, printing, done
+    const [screen, setScreen] = useState('loading'); // loading, invalid, camera, preview, adjust, printing, done
     const [photoBlob, setPhotoBlob] = useState(null);
     const [photoUrl, setPhotoUrl] = useState(null);
     const [error, setError] = useState(null);
@@ -17,6 +17,7 @@ export default function Photobooth() {
     // Device session
     const [deviceOnline, setDeviceOnline] = useState(false);
     const [sessionToken, setSessionToken] = useState(null);
+    const [sessionValid, setSessionValid] = useState(false);
     const [deviceName, setDeviceName] = useState('');
 
     // Adjustment parameters
@@ -27,26 +28,53 @@ export default function Photobooth() {
     const videoRef = useRef(null);
     const streamRef = useRef(null);
 
-    // Fetch device status and session token
-    const fetchDeviceStatus = useCallback(async () => {
+    // Get session token from URL
+    const getUrlToken = useCallback(() => {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('session');
+    }, []);
+
+    // Validate session against device
+    const validateSession = useCallback(async () => {
+        const urlToken = getUrlToken();
+
+        if (!urlToken) {
+            setSessionValid(false);
+            setScreen('invalid');
+            return;
+        }
+
         try {
             const res = await axios.get(`/api/devices/${DEVICE_ID}/status`);
             setDeviceOnline(res.data.is_online);
-            setSessionToken(res.data.session_token);
             setDeviceName(res.data.name);
-        } catch (err) {
-            console.error('Failed to fetch device status:', err);
-            setDeviceOnline(false);
-            setSessionToken(null);
-        }
-    }, []);
 
-    // Poll device status periodically
+            // Check if URL token matches current device session
+            if (res.data.session_token === urlToken) {
+                setSessionToken(urlToken);
+                setSessionValid(true);
+                if (screen === 'loading' || screen === 'invalid') {
+                    setScreen('camera');
+                }
+            } else {
+                setSessionToken(null);
+                setSessionValid(false);
+                setScreen('invalid');
+            }
+        } catch (err) {
+            console.error('Failed to validate session:', err);
+            setDeviceOnline(false);
+            setSessionValid(false);
+            setScreen('invalid');
+        }
+    }, [getUrlToken, screen]);
+
+    // Initial validation and periodic check
     useEffect(() => {
-        fetchDeviceStatus();
-        const interval = setInterval(fetchDeviceStatus, STATUS_POLL_INTERVAL);
+        validateSession();
+        const interval = setInterval(validateSession, STATUS_POLL_INTERVAL);
         return () => clearInterval(interval);
-    }, [fetchDeviceStatus]);
+    }, [validateSession]);
 
     // Start camera
     const startCamera = useCallback(async (facing = facingMode) => {
@@ -230,15 +258,15 @@ export default function Photobooth() {
         setScreen('camera');
     }, [photoUrl, processedImageUrl]);
 
-    // Auto-start camera when on camera screen
+    // Auto-start camera when on camera screen and session is valid
     useEffect(() => {
-        if (screen === 'camera') {
+        if (screen === 'camera' && sessionValid) {
             startCamera();
         }
         return () => {
             if (screen === 'camera') stopCamera();
         };
-    }, [screen, startCamera, stopCamera]);
+    }, [screen, sessionValid, startCamera, stopCamera]);
 
     // Auto-restart after success
     useEffect(() => {
@@ -250,8 +278,33 @@ export default function Photobooth() {
 
     return (
         <div className="fixed inset-0 flex flex-col bg-black">
+            {/* Loading Screen */}
+            {screen === 'loading' && (
+                <div className="flex-1 flex flex-col items-center justify-center p-6">
+                    <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin mb-6" />
+                    <div className="text-white text-lg">Verification de la session...</div>
+                </div>
+            )}
+
+            {/* Invalid Session Screen */}
+            {screen === 'invalid' && (
+                <div className="flex-1 flex flex-col items-center justify-center p-6">
+                    <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center mb-6">
+                        <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <div className="text-white text-xl font-medium mb-2">Session invalide</div>
+                    <div className="text-gray-400 text-center max-w-sm">
+                        {!getUrlToken()
+                            ? "Veuillez scanner le QR code sur l'imprimante pour acceder a l'application."
+                            : "Cette session a expire. L'imprimante a ete redemarree. Veuillez scanner le nouveau QR code."}
+                    </div>
+                </div>
+            )}
+
             {/* Device offline overlay */}
-            {!deviceOnline && screen === 'camera' && (
+            {!deviceOnline && sessionValid && screen === 'camera' && (
                 <div className="absolute inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-6">
                     <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mb-6">
                         <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -265,10 +318,12 @@ export default function Photobooth() {
             )}
 
             {/* Printer status indicator */}
-            <div className="absolute top-4 left-4 z-40 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur">
-                <span className={`w-2 h-2 rounded-full ${deviceOnline ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className="text-white text-xs">{deviceOnline ? 'Imprimante connectee' : 'Hors ligne'}</span>
-            </div>
+            {sessionValid && (
+                <div className="absolute top-4 left-4 z-40 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur">
+                    <span className={`w-2 h-2 rounded-full ${deviceOnline ? 'bg-green-500' : 'bg-red-500'}`} />
+                    <span className="text-white text-xs">{deviceOnline ? 'Imprimante connectee' : 'Hors ligne'}</span>
+                </div>
+            )}
 
             {/* Camera Screen */}
             {screen === 'camera' && (

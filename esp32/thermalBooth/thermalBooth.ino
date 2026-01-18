@@ -810,7 +810,10 @@ void sendHeartbeat() {
 void printAppQRCode() {
     Serial.println("[QR] Printing app QR code...");
 
-    String qrData = String(APP_URL);
+    // Include session token in URL for access control
+    String qrData = String(APP_URL) + "?session=" + String(sessionToken);
+    Serial.print("[QR] URL: ");
+    Serial.println(qrData);
     printQRCode(qrData.c_str(), "Scannez pour prendre une photo");
 }
 
