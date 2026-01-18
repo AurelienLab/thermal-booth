@@ -18,8 +18,25 @@ class PrintJobController extends Controller
         $request->validate([
             'type' => 'required|in:photo,qrcode,text',
             'photo_id' => 'required_if:type,photo|exists:photos,id',
+            'session_token' => 'required|string',
             'options' => 'nullable|array',
         ]);
+
+        // Validate session token
+        if ($device->session_token !== $request->session_token) {
+            return response()->json([
+                'error' => 'Invalid session token',
+                'message' => 'The printer session has expired. Please refresh the page.',
+            ], 403);
+        }
+
+        // Check device is online (seen in last minute)
+        if (!$device->last_seen_at || $device->last_seen_at->lt(now()->subMinute())) {
+            return response()->json([
+                'error' => 'Device offline',
+                'message' => 'The printer is currently offline.',
+            ], 503);
+        }
 
         $printJob = PrintJob::create([
             'device_id' => $device->id,

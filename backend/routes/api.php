@@ -13,6 +13,7 @@ Route::get('/photos/{photo}', [PhotoController::class, 'show']);
 
 Route::post('/devices/{device}/print-jobs', [PrintJobController::class, 'store']);
 Route::get('/devices/{device}/print-jobs', [PrintJobController::class, 'index']);
+Route::get('/devices/{device}/status', [DeviceController::class, 'status']);
 Route::post('/print-jobs/{printJob}/reprint', [PrintJobController::class, 'reprint']);
 
 // Admin API

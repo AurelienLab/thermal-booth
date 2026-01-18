@@ -41,6 +41,9 @@ volatile uint8_t lastDisconnectReason = 0;
 const char* APP_URL = "https://thermal-booth.aurelienlab.dev";
 const char* DEVICE_TOKEN = "bb3da05ed2d7bd788dbd03dd03c8a1689ae9096a5c0080bbb618e648720b69ee";
 
+// Session token (generated at boot, sent to backend to invalidate old sessions)
+char sessionToken[17]; // 16 hex chars + null terminator
+
 // WebSocket (Reverb) config
 // Use the Expose URL from: ./start-reverb-expose.sh
 const char* WS_HOST = "thermal-booth-ws.aurelienlab.dev";
@@ -88,6 +91,11 @@ void setup() {
 
     Serial.println("\n=== ThermalBooth ESP32 ===");
     Serial.println("Hold BOOT button for 3s to reset WiFi");
+
+    // Generate unique session token for this boot
+    generateSessionToken();
+    Serial.print("Session token: ");
+    Serial.println(sessionToken);
 
     // Init HTTPS client (skip certificate verification)
     secureClient.setInsecure();
@@ -489,6 +497,18 @@ void blinkLED(int interval) {
 }
 
 // ============================================
+// SESSION TOKEN
+// ============================================
+void generateSessionToken() {
+    // Generate 16 random hex characters
+    const char hexChars[] = "0123456789abcdef";
+    for (int i = 0; i < 16; i++) {
+        sessionToken[i] = hexChars[esp_random() % 16];
+    }
+    sessionToken[16] = '\0';
+}
+
+// ============================================
 // PRINTER
 // ============================================
 void initPrinter() {
@@ -720,7 +740,6 @@ bool downloadAndPrint(const char* url) {
 
     // Feed paper
     Serial2.println();
-    Serial2.println();
 
     digitalWrite(LED_BUILTIN, HIGH);
     http.end();
@@ -767,8 +786,9 @@ void sendHeartbeat() {
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Accept", "application/json");
 
-    // Send status info
-    String body = "{\"ws_connected\":" + String(wsConnected ? "true" : "false") +
+    // Send status info including session token
+    String body = "{\"session_token\":\"" + String(sessionToken) + "\"" +
+                  ",\"ws_connected\":" + String(wsConnected ? "true" : "false") +
                   ",\"ws_subscribed\":" + String(wsSubscribed ? "true" : "false") +
                   ",\"free_heap\":" + String(ESP.getFreeHeap()) + "}";
 

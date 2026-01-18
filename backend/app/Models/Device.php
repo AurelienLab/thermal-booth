@@ -9,6 +9,7 @@ class Device extends Model
     protected $fillable = [
         'name',
         'gamma',
+        'session_token',
         'api_token_hash',
         'last_seen_at',
         'meta',

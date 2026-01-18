@@ -62,12 +62,32 @@ class DeviceController extends Controller
     {
         $device = $request->attributes->get('device');
 
-        $device->update([
+        $updateData = [
             'last_seen_at' => now(),
-            'meta' => array_merge($device->meta ?? [], $request->all()),
-        ]);
+            'meta' => array_merge($device->meta ?? [], $request->except('session_token')),
+        ];
+
+        // If ESP32 sends a session_token, store it (generated at boot)
+        if ($request->has('session_token')) {
+            $updateData['session_token'] = $request->session_token;
+        }
+
+        $device->update($updateData);
 
         return response()->json(['success' => true]);
+    }
+
+    public function status(Device $device)
+    {
+        $isOnline = $device->last_seen_at && $device->last_seen_at->gt(now()->subMinutes(1));
+
+        return response()->json([
+            'id' => $device->id,
+            'name' => $device->name,
+            'is_online' => $isOnline,
+            'session_token' => $isOnline ? $device->session_token : null,
+            'last_seen_at' => $device->last_seen_at?->toISOString(),
+        ]);
     }
 
     public function index()
