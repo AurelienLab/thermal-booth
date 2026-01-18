@@ -3,7 +3,7 @@ import axios from 'axios';
 import { processImage } from '../utils/imageProcessor';
 
 const DEVICE_ID = 1;
-const STATUS_POLL_INTERVAL = 10000; // Check device status every 10s
+const OFFLINE_TIMEOUT = 30000; // Consider offline after 30s without heartbeat
 
 export default function Photobooth() {
     const [screen, setScreen] = useState('loading'); // loading, invalid, camera, preview, adjust, printing, done
@@ -27,6 +27,8 @@ export default function Photobooth() {
 
     const videoRef = useRef(null);
     const streamRef = useRef(null);
+    const lastHeartbeatRef = useRef(null);
+    const offlineTimerRef = useRef(null);
 
     // Get session token from URL
     const getUrlToken = useCallback(() => {
@@ -34,7 +36,40 @@ export default function Photobooth() {
         return params.get('session');
     }, []);
 
-    // Validate session against device
+    // Handle device status update from WebSocket
+    const handleStatusUpdate = useCallback((data) => {
+        if (data.device_id !== DEVICE_ID) return;
+
+        const urlToken = getUrlToken();
+
+        // Update last heartbeat time
+        lastHeartbeatRef.current = Date.now();
+
+        // Check session validity
+        if (data.session_token === urlToken) {
+            setDeviceOnline(data.is_online);
+            setDeviceName(data.name);
+            setSessionToken(urlToken);
+            setSessionValid(true);
+
+            // Clear offline timer and set new one
+            if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+            offlineTimerRef.current = setTimeout(() => {
+                setDeviceOnline(false);
+            }, OFFLINE_TIMEOUT);
+
+            if (screen === 'loading' || screen === 'invalid') {
+                setScreen('camera');
+            }
+        } else if (sessionValid) {
+            // Session token changed (device rebooted)
+            setSessionToken(null);
+            setSessionValid(false);
+            setScreen('invalid');
+        }
+    }, [getUrlToken, screen, sessionValid]);
+
+    // Initial validation via HTTP
     const validateSession = useCallback(async () => {
         const urlToken = getUrlToken();
 
@@ -53,6 +88,14 @@ export default function Photobooth() {
             if (res.data.session_token === urlToken) {
                 setSessionToken(urlToken);
                 setSessionValid(true);
+                lastHeartbeatRef.current = Date.now();
+
+                // Set offline timer
+                if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+                offlineTimerRef.current = setTimeout(() => {
+                    setDeviceOnline(false);
+                }, OFFLINE_TIMEOUT);
+
                 if (screen === 'loading' || screen === 'invalid') {
                     setScreen('camera');
                 }
@@ -69,12 +112,28 @@ export default function Photobooth() {
         }
     }, [getUrlToken, screen]);
 
-    // Initial validation and periodic check
+    // Initial validation
     useEffect(() => {
         validateSession();
-        const interval = setInterval(validateSession, STATUS_POLL_INTERVAL);
-        return () => clearInterval(interval);
-    }, [validateSession]);
+    }, []);
+
+    // Subscribe to WebSocket for real-time status updates
+    useEffect(() => {
+        if (!window.Echo) {
+            console.warn('Echo not available, falling back to polling');
+            const interval = setInterval(validateSession, 10000);
+            return () => clearInterval(interval);
+        }
+
+        const channel = window.Echo.channel('printer.status');
+        channel.listen('.device.status', handleStatusUpdate);
+
+        return () => {
+            channel.stopListening('.device.status');
+            window.Echo.leaveChannel('printer.status');
+            if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+        };
+    }, [handleStatusUpdate, validateSession]);
 
     // Start camera
     const startCamera = useCallback(async (facing = facingMode) => {

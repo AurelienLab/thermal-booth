@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\DeviceStatusUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\PrintJob;
@@ -73,6 +74,9 @@ class DeviceController extends Controller
         }
 
         $device->update($updateData);
+
+        // Broadcast status update to PWA clients
+        broadcast(new DeviceStatusUpdated($device, true));
 
         return response()->json(['success' => true]);
     }
