@@ -106,10 +106,16 @@ class PhotoController extends Controller
     private function generateEscPosFile(PrintJob $printJob): void
     {
         $photo = $printJob->photo;
+        $device = $printJob->device;
         $imagePath = Storage::disk('public')->path($photo->path_original);
 
+        // Merge device gamma with job options
+        $options = array_merge($printJob->options ?? [], [
+            'gamma' => $device->gamma,
+        ]);
+
         $escPosService = new EscPosService();
-        $binary = $escPosService->convertImageToEscPos($imagePath, $printJob->options ?? []);
+        $binary = $escPosService->convertImageToEscPos($imagePath, $options);
 
         $escPosPath = 'escpos/'.$printJob->id.'.bin';
         Storage::disk('public')->put($escPosPath, $binary);

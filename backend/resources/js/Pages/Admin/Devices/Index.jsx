@@ -33,6 +33,8 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 import {
     Plus,
     Trash2,
@@ -40,6 +42,7 @@ import {
     Check,
     Wifi,
     WifiOff,
+    Settings,
 } from 'lucide-react';
 
 export default function DevicesIndex({ devices }) {
@@ -50,12 +53,39 @@ export default function DevicesIndex({ devices }) {
     const [newDeviceToken, setNewDeviceToken] = useState(null);
     const [copied, setCopied] = useState(false);
 
+    // Edit device state
+    const [editDevice, setEditDevice] = useState(null);
+    const [editGamma, setEditGamma] = useState(1.8);
+    const [isSaving, setIsSaving] = useState(false);
+
     // Handle new device token from flash
     useEffect(() => {
         if (flash?.newDevice?.token) {
             setNewDeviceToken(flash.newDevice.token);
         }
     }, [flash]);
+
+    const openEditDialog = (device) => {
+        setEditDevice(device);
+        setEditGamma(device.gamma);
+    };
+
+    const closeEditDialog = () => {
+        setEditDevice(null);
+    };
+
+    const handleSaveGamma = () => {
+        if (!editDevice) return;
+        setIsSaving(true);
+        router.put(
+            `/admin/devices/${editDevice.id}`,
+            { gamma: editGamma },
+            {
+                onSuccess: () => closeEditDialog(),
+                onFinish: () => setIsSaving(false),
+            }
+        );
+    };
 
     const handleCreate = () => {
         setIsCreating(true);
@@ -196,19 +226,20 @@ export default function DevicesIndex({ devices }) {
                             <TableRow>
                                 <TableHead>Status</TableHead>
                                 <TableHead>Name</TableHead>
+                                <TableHead>Gamma</TableHead>
                                 <TableHead>Last Seen</TableHead>
                                 <TableHead>Jobs</TableHead>
                                 <TableHead>Printed</TableHead>
                                 <TableHead>Pending</TableHead>
                                 <TableHead>Failed</TableHead>
-                                <TableHead className="w-[80px]"></TableHead>
+                                <TableHead className="w-[100px]"></TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {devices.length === 0 ? (
                                 <TableRow>
                                     <TableCell
-                                        colSpan={8}
+                                        colSpan={9}
                                         className="text-center text-muted-foreground py-8"
                                     >
                                         No devices registered
@@ -235,6 +266,9 @@ export default function DevicesIndex({ devices }) {
                                         </TableCell>
                                         <TableCell className="font-medium">{device.name}</TableCell>
                                         <TableCell className="text-muted-foreground">
+                                            {device.gamma}
+                                        </TableCell>
+                                        <TableCell className="text-muted-foreground">
                                             {formatLastSeen(device.last_seen_at)}
                                         </TableCell>
                                         <TableCell>{device.print_jobs_count}</TableCell>
@@ -248,37 +282,46 @@ export default function DevicesIndex({ devices }) {
                                             {device.failed_count}
                                         </TableCell>
                                         <TableCell>
-                                            <AlertDialog>
-                                                <AlertDialogTrigger asChild>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="text-destructive hover:text-destructive"
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </Button>
-                                                </AlertDialogTrigger>
-                                                <AlertDialogContent>
-                                                    <AlertDialogHeader>
-                                                        <AlertDialogTitle>
-                                                            Delete {device.name}?
-                                                        </AlertDialogTitle>
-                                                        <AlertDialogDescription>
-                                                            This action cannot be undone. The device
-                                                            will need to be re-registered with a new
-                                                            token.
-                                                        </AlertDialogDescription>
-                                                    </AlertDialogHeader>
-                                                    <AlertDialogFooter>
-                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                        <AlertDialogAction
-                                                            onClick={() => handleDelete(device.id)}
+                                            <div className="flex gap-1">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => openEditDialog(device)}
+                                                >
+                                                    <Settings className="w-4 h-4" />
+                                                </Button>
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger asChild>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="text-destructive hover:text-destructive"
                                                         >
-                                                            Delete
-                                                        </AlertDialogAction>
-                                                    </AlertDialogFooter>
-                                                </AlertDialogContent>
-                                            </AlertDialog>
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </Button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>
+                                                                Delete {device.name}?
+                                                            </AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                This action cannot be undone. The device
+                                                                will need to be re-registered with a new
+                                                                token.
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction
+                                                                onClick={() => handleDelete(device.id)}
+                                                            >
+                                                                Delete
+                                                            </AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
+                                            </div>
                                         </TableCell>
                                     </TableRow>
                                 ))
@@ -287,6 +330,46 @@ export default function DevicesIndex({ devices }) {
                     </Table>
                 </CardContent>
             </Card>
+
+            {/* Edit Device Dialog */}
+            <Dialog open={!!editDevice} onOpenChange={(open) => !open && closeEditDialog()}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Device Settings</DialogTitle>
+                        <DialogDescription>
+                            Configure print settings for {editDevice?.name}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-6 py-4">
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                                <Label>Gamma Correction</Label>
+                                <span className="text-sm font-mono bg-muted px-2 py-1 rounded">
+                                    {editGamma.toFixed(1)}
+                                </span>
+                            </div>
+                            <Slider
+                                value={[editGamma]}
+                                onValueChange={([value]) => setEditGamma(value)}
+                                min={0.5}
+                                max={4}
+                                step={0.1}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Higher values lighten midtones. Recommended: 1.4-2.5
+                            </p>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={closeEditDialog}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleSaveGamma} disabled={isSaving}>
+                            {isSaving ? 'Saving...' : 'Save'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

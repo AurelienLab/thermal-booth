@@ -22,6 +22,7 @@ class DeviceController extends Controller
             'devices' => $devices->map(fn ($d) => [
                 'id' => $d->id,
                 'name' => $d->name,
+                'gamma' => $d->gamma,
                 'last_seen_at' => $d->last_seen_at?->toISOString(),
                 'is_online' => $d->last_seen_at && $d->last_seen_at->gt(now()->subMinutes(5)),
                 'meta' => $d->meta,
@@ -32,6 +33,18 @@ class DeviceController extends Controller
                 'created_at' => $d->created_at->toISOString(),
             ]),
         ]);
+    }
+
+    public function update(Request $request, Device $device)
+    {
+        $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'gamma' => 'sometimes|numeric|min:0.5|max:5',
+        ]);
+
+        $device->update($request->only(['name', 'gamma']));
+
+        return back()->with('success', 'Device updated successfully');
     }
 
     public function store(Request $request)

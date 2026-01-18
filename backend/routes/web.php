@@ -39,5 +39,6 @@ Route::prefix('admin')->middleware(AdminAuthenticate::class)->group(function () 
     // Devices
     Route::get('/devices', [AdminDeviceController::class, 'index'])->name('admin.devices.index');
     Route::post('/devices', [AdminDeviceController::class, 'store'])->name('admin.devices.store');
+    Route::put('/devices/{device}', [AdminDeviceController::class, 'update'])->name('admin.devices.update');
     Route::delete('/devices/{device}', [AdminDeviceController::class, 'destroy'])->name('admin.devices.destroy');
 });

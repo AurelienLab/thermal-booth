@@ -8,12 +8,14 @@ class Device extends Model
 {
     protected $fillable = [
         'name',
+        'gamma',
         'api_token_hash',
         'last_seen_at',
         'meta',
     ];
 
     protected $casts = [
+        'gamma' => 'float',
         'meta' => 'array',
         'last_seen_at' => 'datetime',
     ];
