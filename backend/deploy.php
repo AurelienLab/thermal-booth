@@ -42,20 +42,17 @@ task('npm:prune', function () {
     run('source ~/.nvm/nvm.sh && cd {{release_path}} && nvm use && npm prune --production');
 });
 
-desc('Restart PM2 processes');
-task('pm2:restart', function () {
-    run('pm2 restart all --silent || pm2 start ecosystem.config.js || true');
-});
-
-desc('Restart Reverb WebSocket server');
+desc('Restart Reverb via PM2');
 task('reverb:restart', function () {
-    run('cd {{release_path}} && php artisan reverb:restart || true');
+    // Delete old process if exists, then start fresh from ecosystem config
+    run('pm2 delete reverb 2>/dev/null || true');
+    run('cd {{release_path}} && pm2 start ecosystem.config.js');
+    run('pm2 save');
 });
 
 // Hooks
 before('deploy:symlink', 'npm:install');
 after('npm:install', 'npm:build');
 after('npm:build', 'npm:prune');
-after('deploy:symlink', 'pm2:restart');
-after('pm2:restart', 'reverb:restart');
+after('deploy:symlink', 'reverb:restart');
 after('deploy:failed', 'deploy:unlock');
