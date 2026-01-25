@@ -60,20 +60,15 @@ class EscPosService
         // ESC @ - Initialize printer
         $data .= "\x1B\x40";
 
-        // Try to enable UTF-8 mode (FS C followed by FS .)
-        // Works on many modern thermal printers
-        $data .= "\x1C\x43\x01"; // FS C 1 - Select UTF-8 encoding
-        $data .= "\x1C\x2E";     // FS . - Enable UTF-8 mode
-
         foreach ($blocks as $block) {
             $type = $block['type'] ?? 'text';
 
             switch ($type) {
                 case 'text':
-                    $data .= $this->renderTextBlock($block);
+                    $data .= $this->renderTextBlockAsBitmap($block);
                     break;
                 case 'separator':
-                    $data .= $this->renderSeparator($block);
+                    $data .= $this->renderSeparatorAsBitmap($block);
                     break;
                 case 'qr':
                     $data .= $this->renderQrCode($block);
@@ -165,69 +160,210 @@ class EscPosService
         return $lines ?: [''];
     }
 
-    private function renderTextBlock(array $block): string
+    /**
+     * Render text block as bitmap image for full Unicode support
+     */
+    private function renderTextBlockAsBitmap(array $block): string
     {
-        $data = '';
         $content = $block['content'] ?? '';
-        $sizeKey = $block['size'] ?? 'normal';
-
-        // Calculate effective line width based on text size
-        $lineWidth = match ($sizeKey) {
-            'wide', 'big' => self::CHARS_PER_LINE / 2, // Double width = half the characters
-            default => self::CHARS_PER_LINE,
-        };
-
-        // Set alignment
-        $align = match ($block['align'] ?? 'left') {
-            'center' => self::ALIGN_CENTER,
-            'right' => self::ALIGN_RIGHT,
-            default => self::ALIGN_LEFT,
-        };
-        $data .= "\x1B\x61" . chr($align);
-
-        // Set text size
-        $size = match ($sizeKey) {
-            'wide' => self::SIZE_DOUBLE_WIDTH,
-            'tall' => self::SIZE_DOUBLE_HEIGHT,
-            'big' => self::SIZE_DOUBLE,
-            default => self::SIZE_NORMAL,
-        };
-        $data .= "\x1D\x21" . chr($size);
-
-        // Set bold
-        $bold = ($block['bold'] ?? false) ? 1 : 0;
-        $data .= "\x1B\x45" . chr($bold);
-
-        // Set underline
-        $underline = ($block['underline'] ?? false) ? 1 : 0;
-        $data .= "\x1B\x2D" . chr($underline);
-
-        // Set invert (white on black)
-        $invert = ($block['invert'] ?? false) ? 1 : 0;
-        $data .= "\x1D\x42" . chr($invert);
-
-        // Word wrap (send UTF-8 directly if printer supports it)
-        $lines = $this->wordWrap($content, (int) $lineWidth);
-        foreach ($lines as $line) {
-            $data .= $line . "\n";
+        if (empty($content)) {
+            return '';
         }
 
-        // Reset styles
-        $data .= "\x1D\x21\x00"; // Normal size
-        $data .= "\x1B\x45\x00"; // Bold off
-        $data .= "\x1B\x2D\x00"; // Underline off
-        $data .= "\x1D\x42\x00"; // Invert off
+        $sizeKey = $block['size'] ?? 'normal';
+        $align = $block['align'] ?? 'left';
+        $bold = $block['bold'] ?? false;
+        $underline = $block['underline'] ?? false;
+        $invert = $block['invert'] ?? false;
 
-        return $data;
+        // Font sizes based on text size option
+        $fontSize = match ($sizeKey) {
+            'wide' => 24,
+            'tall' => 32,
+            'big' => 40,
+            default => 20,
+        };
+
+        // Calculate line width in characters for word wrap
+        $charsPerLine = match ($sizeKey) {
+            'wide', 'big' => 16,
+            'tall' => 24,
+            default => 32,
+        };
+
+        // Word wrap the content
+        $lines = $this->wordWrap($content, $charsPerLine);
+
+        // Create image with Intervention
+        $manager = new ImageManager(new Driver());
+
+        // Calculate image dimensions
+        $lineHeight = (int) ($fontSize * 1.4);
+        $padding = 4;
+        $height = count($lines) * $lineHeight + $padding * 2;
+
+        // Create white background image
+        $image = $manager->create(self::PRINTER_WIDTH, $height)->fill('white');
+
+        // Find a font that supports accents
+        $fontPath = $this->findFont($bold);
+
+        // Draw each line
+        $y = $padding;
+        foreach ($lines as $line) {
+            if (empty(trim($line))) {
+                $y += $lineHeight;
+                continue;
+            }
+
+            // Calculate X position based on alignment
+            $x = match ($align) {
+                'center' => self::PRINTER_WIDTH / 2,
+                'right' => self::PRINTER_WIDTH - $padding,
+                default => $padding,
+            };
+
+            $hAlign = match ($align) {
+                'center' => 'center',
+                'right' => 'right',
+                default => 'left',
+            };
+
+            $textColor = $invert ? 'white' : 'black';
+
+            // Draw background for invert mode
+            if ($invert) {
+                $image->drawRectangle($padding, $y, function ($draw) use ($lineHeight) {
+                    $draw->size(self::PRINTER_WIDTH - 8, $lineHeight);
+                    $draw->background('black');
+                });
+            }
+
+            $image->text($line, (int) $x, $y + $fontSize, function ($font) use ($fontPath, $fontSize, $textColor, $hAlign) {
+                $font->filename($fontPath);
+                $font->size($fontSize);
+                $font->color($textColor);
+                $font->align($hAlign);
+                $font->valign('top');
+            });
+
+            // Draw underline
+            if ($underline) {
+                $lineY = $y + $lineHeight - 4;
+                $image->drawLine(function ($draw) use ($lineY) {
+                    $draw->from($padding ?? 4, $lineY);
+                    $draw->to(self::PRINTER_WIDTH - 4, $lineY);
+                    $draw->color('black');
+                    $draw->width(1);
+                });
+            }
+
+            $y += $lineHeight;
+        }
+
+        // Convert image to ESC/POS bitmap
+        return $this->imageToBitmap($image);
     }
 
-    private function renderSeparator(array $block): string
+    /**
+     * Render separator as bitmap
+     */
+    private function renderSeparatorAsBitmap(array $block): string
     {
         $char = $block['char'] ?? '-';
         $line = str_repeat($char, self::CHARS_PER_LINE);
 
-        // Center alignment for separator
-        return "\x1B\x61\x01" . $line . "\n" . "\x1B\x61\x00";
+        $manager = new ImageManager(new Driver());
+        $fontSize = 20;
+        $height = (int) ($fontSize * 1.4);
+
+        $image = $manager->create(self::PRINTER_WIDTH, $height)->fill('white');
+        $fontPath = $this->findFont(false);
+
+        $image->text($line, self::PRINTER_WIDTH / 2, $fontSize, function ($font) use ($fontPath, $fontSize) {
+            $font->filename($fontPath);
+            $font->size($fontSize);
+            $font->color('black');
+            $font->align('center');
+            $font->valign('top');
+        });
+
+        return $this->imageToBitmap($image);
+    }
+
+    /**
+     * Find a suitable font file
+     */
+    private function findFont(bool $bold = false): string
+    {
+        // Common font paths on Linux/macOS
+        $fonts = $bold ? [
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
+            '/System/Library/Fonts/Helvetica.ttc',
+            '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+        ] : [
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+            '/usr/share/fonts/TTF/DejaVuSans.ttf',
+            '/System/Library/Fonts/Helvetica.ttc',
+            '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+        ];
+
+        foreach ($fonts as $font) {
+            if (file_exists($font)) {
+                return $font;
+            }
+        }
+
+        // Fallback to GD built-in font (limited Unicode support)
+        return '';
+    }
+
+    /**
+     * Convert Intervention Image to ESC/POS bitmap data
+     */
+    private function imageToBitmap($image): string
+    {
+        $width = $image->width();
+        $height = $image->height();
+        $widthBytes = (int) ceil($width / 8);
+
+        // Convert to 1-bit bitmap (simple threshold, no dithering for text)
+        $pixels = [];
+        for ($y = 0; $y < $height; $y++) {
+            for ($x = 0; $x < $width; $x++) {
+                $color = $image->pickColor($x, $y);
+                $gray = $color->red()->value();
+                $pixels[$y][$x] = $gray < 128 ? 1 : 0; // 1 = black, 0 = white
+            }
+        }
+
+        // Generate ESC/POS binary
+        $data = '';
+
+        // GS v 0 - Print raster bit image
+        $data .= "\x1D\x76\x30";
+        $data .= chr(0); // m = 0 (normal)
+        $data .= chr($widthBytes % 256);
+        $data .= chr((int) ($widthBytes / 256));
+        $data .= chr($height % 256);
+        $data .= chr((int) ($height / 256));
+
+        // Pack pixels into bytes
+        for ($y = 0; $y < $height; $y++) {
+            for ($byteIndex = 0; $byteIndex < $widthBytes; $byteIndex++) {
+                $byte = 0;
+                for ($bit = 0; $bit < 8; $bit++) {
+                    $x = $byteIndex * 8 + $bit;
+                    if ($x < $width && isset($pixels[$y][$x]) && $pixels[$y][$x] === 1) {
+                        $byte |= (0x80 >> $bit);
+                    }
+                }
+                $data .= chr($byte);
+            }
+        }
+
+        return $data;
     }
 
     private function renderQrCode(array $block): string
