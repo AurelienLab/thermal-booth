@@ -22,6 +22,28 @@ class EscPosService
     const SIZE_DOUBLE_HEIGHT = 0x01;
     const SIZE_DOUBLE = 0x11; // Both width and height
 
+    // UTF-8 to CP850 mapping for French accented characters
+    private const UTF8_TO_CP850 = [
+        'é' => "\x82", 'è' => "\x8A", 'ê' => "\x88", 'ë' => "\x89",
+        'à' => "\x85", 'â' => "\x83", 'ä' => "\x84",
+        'ù' => "\x97", 'û' => "\x96", 'ü' => "\x81",
+        'ô' => "\x93", 'ö' => "\x94", 'ò' => "\x95",
+        'î' => "\x8C", 'ï' => "\x8B", 'ì' => "\x8D",
+        'ç' => "\x87", 'Ç' => "\x80",
+        'É' => "\x90", 'È' => "\xD4", 'Ê' => "\xD2", 'Ë' => "\xD3",
+        'À' => "\xB7", 'Â' => "\xB6", 'Ä' => "\x8E",
+        'Ù' => "\xEB", 'Û' => "\xEA", 'Ü' => "\x9A",
+        'Ô' => "\xE3", 'Ö' => "\x99",
+        'Î' => "\xD8", 'Ï' => "\xD7",
+        'ñ' => "\xA4", 'Ñ' => "\xA5",
+        '€' => "\xD5",
+        'œ' => "oe", 'Œ' => "OE", // No direct equivalent, use digraph
+        '«' => "\xAE", '»' => "\xAF",
+        '°' => "\xF8",
+        '²' => "\xFD",
+        '³' => "\xFC",
+    ];
+
     /**
      * Convert structured text blocks to ESC/POS binary
      *
@@ -37,6 +59,9 @@ class EscPosService
 
         // ESC @ - Initialize printer
         $data .= "\x1B\x40";
+
+        // ESC t 2 - Select character code table CP850 (Multilingual Latin 1)
+        $data .= "\x1B\x74\x02";
 
         foreach ($blocks as $block) {
             $type = $block['type'] ?? 'text';
@@ -63,10 +88,92 @@ class EscPosService
         return $data;
     }
 
+    /**
+     * Convert UTF-8 string to CP850 encoding for thermal printer
+     */
+    private function convertToCP850(string $text): string
+    {
+        $result = '';
+        $chars = preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY);
+
+        foreach ($chars as $char) {
+            if (isset(self::UTF8_TO_CP850[$char])) {
+                $result .= self::UTF8_TO_CP850[$char];
+            } elseif (ord($char) < 128) {
+                // ASCII character, keep as-is
+                $result .= $char;
+            } else {
+                // Unknown character, replace with ?
+                $result .= '?';
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Word wrap text respecting word boundaries
+     */
+    private function wordWrap(string $text, int $width): array
+    {
+        if ($width <= 0) {
+            $width = self::CHARS_PER_LINE;
+        }
+
+        $lines = [];
+        $words = preg_split('/\s+/', $text);
+        $currentLine = '';
+
+        foreach ($words as $word) {
+            // If word itself is longer than width, split it
+            if (mb_strlen($word) > $width) {
+                if ($currentLine !== '') {
+                    $lines[] = $currentLine;
+                    $currentLine = '';
+                }
+                // Split long word
+                while (mb_strlen($word) > $width) {
+                    $lines[] = mb_substr($word, 0, $width);
+                    $word = mb_substr($word, $width);
+                }
+                if ($word !== '') {
+                    $currentLine = $word;
+                }
+                continue;
+            }
+
+            // Check if word fits on current line
+            $testLine = $currentLine === '' ? $word : $currentLine . ' ' . $word;
+            if (mb_strlen($testLine) <= $width) {
+                $currentLine = $testLine;
+            } else {
+                // Start new line
+                if ($currentLine !== '') {
+                    $lines[] = $currentLine;
+                }
+                $currentLine = $word;
+            }
+        }
+
+        // Add remaining text
+        if ($currentLine !== '') {
+            $lines[] = $currentLine;
+        }
+
+        return $lines ?: [''];
+    }
+
     private function renderTextBlock(array $block): string
     {
         $data = '';
         $content = $block['content'] ?? '';
+        $sizeKey = $block['size'] ?? 'normal';
+
+        // Calculate effective line width based on text size
+        $lineWidth = match ($sizeKey) {
+            'wide', 'big' => self::CHARS_PER_LINE / 2, // Double width = half the characters
+            default => self::CHARS_PER_LINE,
+        };
 
         // Set alignment
         $align = match ($block['align'] ?? 'left') {
@@ -77,7 +184,7 @@ class EscPosService
         $data .= "\x1B\x61" . chr($align);
 
         // Set text size
-        $size = match ($block['size'] ?? 'normal') {
+        $size = match ($sizeKey) {
             'wide' => self::SIZE_DOUBLE_WIDTH,
             'tall' => self::SIZE_DOUBLE_HEIGHT,
             'big' => self::SIZE_DOUBLE,
@@ -97,8 +204,11 @@ class EscPosService
         $invert = ($block['invert'] ?? false) ? 1 : 0;
         $data .= "\x1D\x42" . chr($invert);
 
-        // Print content
-        $data .= $content . "\n";
+        // Word wrap and convert to CP850
+        $lines = $this->wordWrap($content, (int) $lineWidth);
+        foreach ($lines as $line) {
+            $data .= $this->convertToCP850($line) . "\n";
+        }
 
         // Reset styles
         $data .= "\x1D\x21\x00"; // Normal size
@@ -112,6 +222,7 @@ class EscPosService
     private function renderSeparator(array $block): string
     {
         $char = $block['char'] ?? '-';
+        $char = $this->convertToCP850($char);
         $line = str_repeat($char, self::CHARS_PER_LINE);
 
         // Center alignment for separator

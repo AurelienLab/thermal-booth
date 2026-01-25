@@ -227,6 +227,50 @@ function TextBlockEditor({ block, onChange, onRemove, onMoveUp, onMoveDown, isFi
     );
 }
 
+const CHARS_PER_LINE = 32;
+
+function wordWrap(text, width) {
+    if (!text) return [''];
+    const words = text.split(/\s+/);
+    const lines = [];
+    let currentLine = '';
+
+    for (const word of words) {
+        // If word is longer than width, split it
+        if (word.length > width) {
+            if (currentLine) {
+                lines.push(currentLine);
+                currentLine = '';
+            }
+            let remaining = word;
+            while (remaining.length > width) {
+                lines.push(remaining.slice(0, width));
+                remaining = remaining.slice(width);
+            }
+            if (remaining) {
+                currentLine = remaining;
+            }
+            continue;
+        }
+
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        if (testLine.length <= width) {
+            currentLine = testLine;
+        } else {
+            if (currentLine) {
+                lines.push(currentLine);
+            }
+            currentLine = word;
+        }
+    }
+
+    if (currentLine) {
+        lines.push(currentLine);
+    }
+
+    return lines.length ? lines : [''];
+}
+
 function PreviewBlock({ block }) {
     const alignClass = {
         left: 'text-left',
@@ -241,12 +285,20 @@ function PreviewBlock({ block }) {
         big: 'text-lg tracking-[0.5em]',
     }[block.size || 'normal'];
 
+    // Calculate effective width based on size
+    const effectiveWidth = (block.size === 'wide' || block.size === 'big')
+        ? CHARS_PER_LINE / 2
+        : CHARS_PER_LINE;
+
     if (block.type === 'text') {
+        const lines = wordWrap(block.content || '', effectiveWidth);
         return (
             <div
                 className={`${alignClass} ${sizeClass} ${block.bold ? 'font-bold' : ''} ${block.underline ? 'underline' : ''} ${block.invert ? 'bg-black text-white px-1' : ''}`}
             >
-                {block.content || '\u00A0'}
+                {lines.map((line, i) => (
+                    <div key={i}>{line || '\u00A0'}</div>
+                ))}
             </div>
         );
     }
@@ -254,7 +306,7 @@ function PreviewBlock({ block }) {
     if (block.type === 'separator') {
         return (
             <div className="text-center">
-                {(block.char || '-').repeat(32)}
+                {(block.char || '-').repeat(CHARS_PER_LINE)}
             </div>
         );
     }
