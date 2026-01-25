@@ -111,20 +111,34 @@ void setup() {
     // Setup WiFi event handler
     WiFi.onEvent(onWiFiEvent);
 
+    // Check if provisioning was requested (via long press before reboot)
+    bool forceProvisioning = false;
+    preferences.begin("wifi", false);
+    forceProvisioning = preferences.getBool("forceProv", false);
+    if (forceProvisioning) {
+        preferences.putBool("forceProv", false);  // Clear the flag
+        Serial.println("Provisioning requested via button");
+    }
+    preferences.end();
+
     // Load saved networks and try to connect
     loadSavedNetworks();
 
-    if (getSavedNetworkCount() > 0) {
+    if (forceProvisioning) {
+        // User requested provisioning, start it directly
+        startProvisioning();
+    } else if (getSavedNetworkCount() > 0) {
         Serial.println("Connecting to saved networks...");
         connectWiFiMulti();
-    }
 
-    // If no saved networks or connection failed, start provisioning
-    if (!wifiConnected) {
-        startProvisioning();
+        if (!wifiConnected) {
+            startProvisioning();
+        } else {
+            setupAfterWiFiConnected();
+        }
     } else {
-        // Connected! Setup the rest
-        setupAfterWiFiConnected();
+        // No saved networks, start provisioning
+        startProvisioning();
     }
 }
 
@@ -533,8 +547,12 @@ void handleShortPress() {
 }
 
 void handleLongPress() {
-    // Clear all networks and restart in provisioning mode
-    clearAllNetworks();
+    // Set flag to start provisioning on next boot (keeps existing networks)
+    preferences.begin("wifi", false);
+    preferences.putBool("forceProv", true);
+    preferences.end();
+
+    Serial.println("Restarting in provisioning mode...");
     delay(500);
     ESP.restart();
 }
