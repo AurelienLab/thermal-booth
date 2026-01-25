@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\PhotoController as AdminPhotoController;
 use App\Http\Controllers\Admin\PrintJobController as AdminPrintJobController;
 use App\Http\Controllers\Admin\DeviceController as AdminDeviceController;
+use App\Http\Controllers\Admin\TextPrintController;
 use App\Http\Middleware\AdminAuthenticate;
 
 // PWA (public)
@@ -41,4 +42,8 @@ Route::prefix('admin')->middleware(AdminAuthenticate::class)->group(function () 
     Route::post('/devices', [AdminDeviceController::class, 'store'])->name('admin.devices.store');
     Route::put('/devices/{device}', [AdminDeviceController::class, 'update'])->name('admin.devices.update');
     Route::delete('/devices/{device}', [AdminDeviceController::class, 'destroy'])->name('admin.devices.destroy');
+
+    // Text Print
+    Route::get('/text-print', [TextPrintController::class, 'index'])->name('admin.text-print.index');
+    Route::post('/text-print', [TextPrintController::class, 'print'])->name('admin.text-print.print');
 });

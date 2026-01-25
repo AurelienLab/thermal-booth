@@ -9,6 +9,153 @@ class EscPosService
 {
     const PRINTER_WIDTH = 384;
     const DEFAULT_GAMMA = 1.8;
+    const CHARS_PER_LINE = 32; // 58mm printer typical character width
+
+    // Text alignment constants
+    const ALIGN_LEFT = 0;
+    const ALIGN_CENTER = 1;
+    const ALIGN_RIGHT = 2;
+
+    // Text size constants (for GS ! command)
+    const SIZE_NORMAL = 0x00;
+    const SIZE_DOUBLE_WIDTH = 0x10;
+    const SIZE_DOUBLE_HEIGHT = 0x01;
+    const SIZE_DOUBLE = 0x11; // Both width and height
+
+    /**
+     * Convert structured text blocks to ESC/POS binary
+     *
+     * Block types:
+     * - text: { type: "text", content: string, align?: "left"|"center"|"right", size?: "normal"|"wide"|"tall"|"big", bold?: bool, underline?: bool, invert?: bool }
+     * - separator: { type: "separator", char?: string }
+     * - qr: { type: "qr", content: string, size?: int (1-16) }
+     * - feed: { type: "feed", lines?: int }
+     */
+    public function convertTextToEscPos(array $blocks): string
+    {
+        $data = '';
+
+        // ESC @ - Initialize printer
+        $data .= "\x1B\x40";
+
+        foreach ($blocks as $block) {
+            $type = $block['type'] ?? 'text';
+
+            switch ($type) {
+                case 'text':
+                    $data .= $this->renderTextBlock($block);
+                    break;
+                case 'separator':
+                    $data .= $this->renderSeparator($block);
+                    break;
+                case 'qr':
+                    $data .= $this->renderQrCode($block);
+                    break;
+                case 'feed':
+                    $data .= $this->renderFeed($block);
+                    break;
+            }
+        }
+
+        // Final paper feed
+        $data .= "\n\n\n";
+
+        return $data;
+    }
+
+    private function renderTextBlock(array $block): string
+    {
+        $data = '';
+        $content = $block['content'] ?? '';
+
+        // Set alignment
+        $align = match ($block['align'] ?? 'left') {
+            'center' => self::ALIGN_CENTER,
+            'right' => self::ALIGN_RIGHT,
+            default => self::ALIGN_LEFT,
+        };
+        $data .= "\x1B\x61" . chr($align);
+
+        // Set text size
+        $size = match ($block['size'] ?? 'normal') {
+            'wide' => self::SIZE_DOUBLE_WIDTH,
+            'tall' => self::SIZE_DOUBLE_HEIGHT,
+            'big' => self::SIZE_DOUBLE,
+            default => self::SIZE_NORMAL,
+        };
+        $data .= "\x1D\x21" . chr($size);
+
+        // Set bold
+        $bold = ($block['bold'] ?? false) ? 1 : 0;
+        $data .= "\x1B\x45" . chr($bold);
+
+        // Set underline
+        $underline = ($block['underline'] ?? false) ? 1 : 0;
+        $data .= "\x1B\x2D" . chr($underline);
+
+        // Set invert (white on black)
+        $invert = ($block['invert'] ?? false) ? 1 : 0;
+        $data .= "\x1D\x42" . chr($invert);
+
+        // Print content
+        $data .= $content . "\n";
+
+        // Reset styles
+        $data .= "\x1D\x21\x00"; // Normal size
+        $data .= "\x1B\x45\x00"; // Bold off
+        $data .= "\x1B\x2D\x00"; // Underline off
+        $data .= "\x1D\x42\x00"; // Invert off
+
+        return $data;
+    }
+
+    private function renderSeparator(array $block): string
+    {
+        $char = $block['char'] ?? '-';
+        $line = str_repeat($char, self::CHARS_PER_LINE);
+
+        // Center alignment for separator
+        return "\x1B\x61\x01" . $line . "\n" . "\x1B\x61\x00";
+    }
+
+    private function renderQrCode(array $block): string
+    {
+        $content = $block['content'] ?? '';
+        $moduleSize = $block['size'] ?? 6;
+        $data = '';
+
+        // Center alignment
+        $data .= "\x1B\x61\x01";
+
+        // QR Code: Select model (Model 2)
+        $data .= "\x1D\x28\x6B\x04\x00\x31\x41\x32\x00";
+
+        // QR Code: Set module size
+        $data .= "\x1D\x28\x6B\x03\x00\x31\x43" . chr($moduleSize);
+
+        // QR Code: Set error correction level (M)
+        $data .= "\x1D\x28\x6B\x03\x00\x31\x45\x31";
+
+        // QR Code: Store data
+        $len = strlen($content) + 3;
+        $data .= "\x1D\x28\x6B" . chr($len % 256) . chr(intval($len / 256)) . "\x31\x50\x30" . $content;
+
+        // QR Code: Print
+        $data .= "\x1D\x28\x6B\x03\x00\x31\x51\x30";
+
+        $data .= "\n";
+
+        // Reset alignment
+        $data .= "\x1B\x61\x00";
+
+        return $data;
+    }
+
+    private function renderFeed(array $block): string
+    {
+        $lines = $block['lines'] ?? 1;
+        return str_repeat("\n", $lines);
+    }
 
     public function convertImageToEscPos(string $imagePath, array $options = []): string
     {

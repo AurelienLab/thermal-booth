@@ -21,12 +21,14 @@ import {
     Printer,
     Cpu,
     LogOut,
+    Type,
 } from 'lucide-react';
 
 const navigation = [
     { name: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { name: 'Photos', href: '/admin/photos', icon: Images },
     { name: 'Print Jobs', href: '/admin/print-jobs', icon: Printer },
+    { name: 'Text Print', href: '/admin/text-print', icon: Type },
     { name: 'Devices', href: '/admin/devices', icon: Cpu },
 ];
 
