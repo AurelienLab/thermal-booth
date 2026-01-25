@@ -44,10 +44,12 @@ task('npm:prune', function () {
 
 desc('Restart Reverb via PM2');
 task('reverb:restart', function () {
+    // Always use deploy_path/current since ecosystem.config.js points there anyway
+    $path = '{{deploy_path}}/current';
     // Delete old process if exists, then start fresh from ecosystem config
-    run('pm2 delete reverb 2>/dev/null || true');
-    run('cd {{release_path}} && pm2 start ecosystem.config.js');
-    run('pm2 save');
+    run('source ~/.nvm/nvm.sh && pm2 delete reverb 2>/dev/null || true');
+    run("source ~/.nvm/nvm.sh && cd $path && pm2 start ecosystem.config.cjs");
+    run('source ~/.nvm/nvm.sh && pm2 save');
 });
 
 // Hooks
