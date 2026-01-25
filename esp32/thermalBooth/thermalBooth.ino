@@ -18,8 +18,10 @@
 #define PROV_DEVICE_NAME    "ThermalBooth"   // Nom visible en Bluetooth
 #define PROV_POP            "thermalbooth"   // Proof of Possession (mot de passe BLE)
 #define MAX_WIFI_NETWORKS   5                // Nombre max de réseaux sauvegardés
-#define RESET_BUTTON_PIN    0                // GPIO 0 = BOOT button
-#define RESET_HOLD_TIME     3000             // 3 secondes pour reset WiFi
+#define BUTTON_PIN          4                // GPIO 4 = External button
+#define LONG_PRESS_TIME     3000             // 3 secondes pour mode provisioning
+#define SHORT_PRESS_MAX     500              // Max duration for a short press (ms)
+#define DOUBLE_CLICK_GAP    400              // Max gap between clicks for double-click (ms)
 
 // ============================================
 // WIFI MULTI
@@ -66,7 +68,7 @@ const int QR_MODULE_SIZE = 6;  // 1-16, size of each QR module in dots
 #define POLL_INTERVAL 5000
 
 // Heartbeat interval (ms) - to update online status in admin
-#define HEARTBEAT_INTERVAL 30000
+#define HEARTBEAT_INTERVAL 5000
 
 // LED
 #define LED_BUILTIN 2
@@ -87,10 +89,13 @@ void setup() {
     Serial2.begin(PRINTER_BAUD, SERIAL_8N1, PRINTER_RX, PRINTER_TX);
 
     pinMode(LED_BUILTIN, OUTPUT);
-    pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
 
     Serial.println("\n=== ThermalBooth ESP32 ===");
-    Serial.println("Hold BOOT button for 3s to reset WiFi");
+    Serial.println("Button actions:");
+    Serial.println("  - Short press: Print QR code");
+    Serial.println("  - Long press (3s): WiFi provisioning");
+    Serial.println("  - Double click: Print debug ticket");
 
     // Generate unique session token for this boot
     generateSessionToken();
@@ -127,8 +132,8 @@ void loop() {
     // Process WiFi events (from lightweight callback)
     processWiFiEvents();
 
-    // Check reset button (BOOT button)
-    checkResetButton();
+    // Check button (BOOT button)
+    checkButton();
 
     // If provisioning is active, just wait for WiFi
     if (provisioningActive) {
@@ -440,38 +445,48 @@ void setupAfterWiFiConnected() {
     // Send initial heartbeat
     sendHeartbeat();
 
-    // Print QR code with app URL
-    printAppQRCode();
+    // QR code is now printed on button short press only
 }
 
 // ============================================
-// RESET BUTTON (BOOT button on GPIO 0)
+// BUTTON HANDLING (BOOT button on GPIO 0)
+// Short press: Print QR code
+// Long press (3s): Start WiFi provisioning
+// Double click: Print debug ticket
 // ============================================
 unsigned long buttonPressStart = 0;
+unsigned long lastReleaseTime = 0;
 bool buttonWasPressed = false;
+int clickCount = 0;
+bool waitingForSecondClick = false;
+bool longPressHandled = false;
 
-void checkResetButton() {
-    bool buttonPressed = (digitalRead(RESET_BUTTON_PIN) == LOW);
+void checkButton() {
+    bool buttonPressed = (digitalRead(BUTTON_PIN) == LOW);
+    unsigned long now = millis();
 
     if (buttonPressed && !buttonWasPressed) {
         // Button just pressed
-        buttonPressStart = millis();
+        buttonPressStart = now;
         buttonWasPressed = true;
-        Serial.println("Button pressed - hold 3s to reset WiFi...");
+        longPressHandled = false;
+        Serial.println("[Button] Pressed");
     }
     else if (buttonPressed && buttonWasPressed) {
         // Button held
-        unsigned long holdTime = millis() - buttonPressStart;
+        unsigned long holdTime = now - buttonPressStart;
 
-        if (holdTime >= RESET_HOLD_TIME) {
-            Serial.println("Resetting WiFi credentials...");
-            clearAllNetworks();
-            delay(500);
-            ESP.restart();
+        if (holdTime >= LONG_PRESS_TIME && !longPressHandled) {
+            // Long press detected - start WiFi provisioning
+            longPressHandled = true;
+            clickCount = 0;
+            waitingForSecondClick = false;
+            Serial.println("[Button] Long press - Starting WiFi provisioning...");
+            handleLongPress();
         }
 
-        // Blink faster as we approach reset time
-        if (holdTime > 1000) {
+        // Blink faster as we approach long press threshold
+        if (holdTime > 1000 && !longPressHandled) {
             blinkLED(100);
         }
     }
@@ -479,7 +494,160 @@ void checkResetButton() {
         // Button released
         buttonWasPressed = false;
         digitalWrite(LED_BUILTIN, wifiConnected ? HIGH : LOW);
+
+        unsigned long pressDuration = now - buttonPressStart;
+
+        // Only handle as click if it wasn't a long press
+        if (!longPressHandled && pressDuration < SHORT_PRESS_MAX) {
+            clickCount++;
+
+            if (clickCount == 1) {
+                waitingForSecondClick = true;
+                lastReleaseTime = now;
+            }
+            else if (clickCount >= 2) {
+                // Double click detected
+                Serial.println("[Button] Double click - Printing debug ticket...");
+                handleDoubleClick();
+                clickCount = 0;
+                waitingForSecondClick = false;
+            }
+        }
     }
+
+    // Check for single click timeout (no second click came)
+    if (waitingForSecondClick && !buttonPressed && (now - lastReleaseTime > DOUBLE_CLICK_GAP)) {
+        if (clickCount == 1) {
+            // Single click confirmed
+            Serial.println("[Button] Short press - Printing QR code...");
+            handleShortPress();
+        }
+        clickCount = 0;
+        waitingForSecondClick = false;
+    }
+}
+
+void handleShortPress() {
+    // Print QR code with app URL
+    printAppQRCode();
+}
+
+void handleLongPress() {
+    // Clear all networks and restart in provisioning mode
+    clearAllNetworks();
+    delay(500);
+    ESP.restart();
+}
+
+void handleDoubleClick() {
+    // Print debug/diagnostic ticket
+    printDebugTicket();
+}
+
+// ============================================
+// DEBUG TICKET
+// ============================================
+String formatUptime(unsigned long ms) {
+    unsigned long seconds = ms / 1000;
+    unsigned long minutes = seconds / 60;
+    unsigned long hours = minutes / 60;
+    unsigned long days = hours / 24;
+
+    seconds %= 60;
+    minutes %= 60;
+    hours %= 24;
+
+    String result = "";
+    if (days > 0) result += String(days) + "d ";
+    if (hours > 0 || days > 0) result += String(hours) + "h ";
+    if (minutes > 0 || hours > 0 || days > 0) result += String(minutes) + "m ";
+    result += String(seconds) + "s";
+
+    return result;
+}
+
+void printDebugTicket() {
+    Serial.println("[Debug] Printing debug ticket...");
+
+    // Center alignment for header
+    Serial2.write(27);  // ESC
+    Serial2.write(97);  // a
+    Serial2.write(1);   // center
+
+    Serial2.println();
+    Serial2.println("=== DEBUG INFO ===");
+    Serial2.println();
+
+    // Left alignment for content
+    Serial2.write(27);  // ESC
+    Serial2.write(97);  // a
+    Serial2.write(0);   // left
+
+    // Session info
+    Serial2.print("Session: ");
+    Serial2.println(sessionToken);
+    Serial2.println();
+
+    // Network info
+    Serial2.println("-- NETWORK --");
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial2.print("WiFi: Connected");
+        Serial2.println();
+        Serial2.print("SSID: ");
+        Serial2.println(WiFi.SSID());
+        Serial2.print("IP: ");
+        Serial2.println(WiFi.localIP().toString());
+        Serial2.print("RSSI: ");
+        Serial2.print(WiFi.RSSI());
+        Serial2.println(" dBm");
+    } else {
+        Serial2.println("WiFi: Disconnected");
+    }
+    Serial2.print("Saved networks: ");
+    Serial2.println(getSavedNetworkCount());
+    Serial2.println();
+
+    // WebSocket status
+    Serial2.println("-- WEBSOCKET --");
+    Serial2.print("Connected: ");
+    Serial2.println(wsConnected ? "Yes" : "No");
+    Serial2.print("Subscribed: ");
+    Serial2.println(wsSubscribed ? "Yes" : "No");
+    Serial2.print("Host: ");
+    Serial2.println(WS_HOST);
+    Serial2.println();
+
+    // System info
+    Serial2.println("-- SYSTEM --");
+    Serial2.print("Uptime: ");
+    Serial2.println(formatUptime(millis()));
+    Serial2.print("Free heap: ");
+    Serial2.print(ESP.getFreeHeap());
+    Serial2.println(" bytes");
+    Serial2.print("Device ID: ");
+    Serial2.println(DEVICE_ID);
+    Serial2.println();
+
+    // API info
+    Serial2.println("-- API --");
+    Serial2.println(APP_URL);
+    Serial2.println();
+
+    // Center alignment for footer
+    Serial2.write(27);  // ESC
+    Serial2.write(97);  // a
+    Serial2.write(1);   // center
+
+    Serial2.println("==================");
+    Serial2.println();
+    Serial2.println();
+
+    // Reset alignment
+    Serial2.write(27);  // ESC
+    Serial2.write(97);  // a
+    Serial2.write(0);   // left
+
+    Serial.println("[Debug] Done");
 }
 
 // ============================================
