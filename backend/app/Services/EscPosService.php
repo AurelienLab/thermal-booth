@@ -22,31 +22,32 @@ class EscPosService
     const SIZE_DOUBLE_HEIGHT = 0x01;
     const SIZE_DOUBLE = 0x11; // Both width and height
 
-    // UTF-8 to WPC1252 (Windows-1252) mapping for French accented characters
-    // WPC1252 is widely supported and uses same codes as Unicode for Latin-1
-    private const UTF8_TO_CHARSET = [
-        // Lowercase accented
-        'à' => "\xE0", 'á' => "\xE1", 'â' => "\xE2", 'ã' => "\xE3", 'ä' => "\xE4",
-        'è' => "\xE8", 'é' => "\xE9", 'ê' => "\xEA", 'ë' => "\xEB",
-        'ì' => "\xEC", 'í' => "\xED", 'î' => "\xEE", 'ï' => "\xEF",
-        'ò' => "\xF2", 'ó' => "\xF3", 'ô' => "\xF4", 'õ' => "\xF5", 'ö' => "\xF6",
-        'ù' => "\xF9", 'ú' => "\xFA", 'û' => "\xFB", 'ü' => "\xFC",
-        'ç' => "\xE7", 'ñ' => "\xF1",
-        // Uppercase accented
-        'À' => "\xC0", 'Á' => "\xC1", 'Â' => "\xC2", 'Ã' => "\xC3", 'Ä' => "\xC4",
-        'È' => "\xC8", 'É' => "\xC9", 'Ê' => "\xCA", 'Ë' => "\xCB",
-        'Ì' => "\xCC", 'Í' => "\xCD", 'Î' => "\xCE", 'Ï' => "\xCF",
-        'Ò' => "\xD2", 'Ó' => "\xD3", 'Ô' => "\xD4", 'Õ' => "\xD5", 'Ö' => "\xD6",
-        'Ù' => "\xD9", 'Ú' => "\xDA", 'Û' => "\xDB", 'Ü' => "\xDC",
-        'Ç' => "\xC7", 'Ñ' => "\xD1",
-        // Special characters
-        '€' => "\x80",
-        'œ' => "\x9C", 'Œ' => "\x8C",
-        '«' => "\xAB", '»' => "\xBB",
-        '°' => "\xB0",
-        '²' => "\xB2", '³' => "\xB3",
-        '\'' => "'", '\'' => "'", '\'' => "'",
-        '"' => '"', '"' => '"', '"' => '"',
+    // Convert accented characters to ASCII equivalents
+    private const ACCENT_MAP = [
+        // Lowercase
+        'à' => 'a', 'á' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a', 'å' => 'a',
+        'è' => 'e', 'é' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'ì' => 'i', 'í' => 'i', 'î' => 'i', 'ï' => 'i',
+        'ò' => 'o', 'ó' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
+        'ù' => 'u', 'ú' => 'u', 'û' => 'u', 'ü' => 'u',
+        'ç' => 'c', 'ñ' => 'n', 'ÿ' => 'y',
+        // Uppercase
+        'À' => 'A', 'Á' => 'A', 'Â' => 'A', 'Ã' => 'A', 'Ä' => 'A', 'Å' => 'A',
+        'È' => 'E', 'É' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+        'Ì' => 'I', 'Í' => 'I', 'Î' => 'I', 'Ï' => 'I',
+        'Ò' => 'O', 'Ó' => 'O', 'Ô' => 'O', 'Õ' => 'O', 'Ö' => 'O',
+        'Ù' => 'U', 'Ú' => 'U', 'Û' => 'U', 'Ü' => 'U',
+        'Ç' => 'C', 'Ñ' => 'N', 'Ÿ' => 'Y',
+        // Ligatures
+        'œ' => 'oe', 'Œ' => 'OE', 'æ' => 'ae', 'Æ' => 'AE',
+        // Punctuation
+        '«' => '"', '»' => '"',
+        ''' => "'", ''' => "'",
+        '"' => '"', '"' => '"',
+        '–' => '-', '—' => '-',
+        '…' => '...',
+        '€' => 'EUR',
+        '°' => 'o',
     ];
 
     /**
@@ -64,10 +65,6 @@ class EscPosService
 
         // ESC @ - Initialize printer
         $data .= "\x1B\x40";
-
-        // ESC t n - Select character code table
-        // Try WPC1252 (code 16) - widely supported on modern printers
-        $data .= "\x1B\x74\x10";
 
         foreach ($blocks as $block) {
             $type = $block['type'] ?? 'text';
@@ -95,22 +92,22 @@ class EscPosService
     }
 
     /**
-     * Convert UTF-8 string to printer charset encoding
+     * Convert accented characters to ASCII equivalents
      */
-    private function convertToCharset(string $text): string
+    private function convertToAscii(string $text): string
     {
         $result = '';
         $chars = preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY);
 
         foreach ($chars as $char) {
-            if (isset(self::UTF8_TO_CHARSET[$char])) {
-                $result .= self::UTF8_TO_CHARSET[$char];
+            if (isset(self::ACCENT_MAP[$char])) {
+                $result .= self::ACCENT_MAP[$char];
             } elseif (ord($char) < 128) {
                 // ASCII character, keep as-is
                 $result .= $char;
             } else {
-                // Unknown character, replace with ?
-                $result .= '?';
+                // Unknown character, skip it
+                $result .= '';
             }
         }
 
@@ -213,7 +210,7 @@ class EscPosService
         // Word wrap and convert to printer charset
         $lines = $this->wordWrap($content, (int) $lineWidth);
         foreach ($lines as $line) {
-            $data .= $this->convertToCharset($line) . "\n";
+            $data .= $this->convertToAscii($line) . "\n";
         }
 
         // Reset styles
@@ -228,7 +225,7 @@ class EscPosService
     private function renderSeparator(array $block): string
     {
         $char = $block['char'] ?? '-';
-        $char = $this->convertToCharset($char);
+        $char = $this->convertToAscii($char);
         $line = str_repeat($char, self::CHARS_PER_LINE);
 
         // Center alignment for separator
