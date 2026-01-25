@@ -60,8 +60,10 @@ class EscPosService
         // ESC @ - Initialize printer
         $data .= "\x1B\x40";
 
-        // ESC t 2 - Select character code table CP850 (Multilingual Latin 1)
-        $data .= "\x1B\x74\x02";
+        // Try to enable UTF-8 mode (FS C followed by FS .)
+        // Works on many modern thermal printers
+        $data .= "\x1C\x43\x01"; // FS C 1 - Select UTF-8 encoding
+        $data .= "\x1C\x2E";     // FS . - Enable UTF-8 mode
 
         foreach ($blocks as $block) {
             $type = $block['type'] ?? 'text';
@@ -204,10 +206,10 @@ class EscPosService
         $invert = ($block['invert'] ?? false) ? 1 : 0;
         $data .= "\x1D\x42" . chr($invert);
 
-        // Word wrap and convert to CP850
+        // Word wrap (send UTF-8 directly if printer supports it)
         $lines = $this->wordWrap($content, (int) $lineWidth);
         foreach ($lines as $line) {
-            $data .= $this->convertToCP850($line) . "\n";
+            $data .= $line . "\n";
         }
 
         // Reset styles
@@ -222,7 +224,6 @@ class EscPosService
     private function renderSeparator(array $block): string
     {
         $char = $block['char'] ?? '-';
-        $char = $this->convertToCP850($char);
         $line = str_repeat($char, self::CHARS_PER_LINE);
 
         // Center alignment for separator
